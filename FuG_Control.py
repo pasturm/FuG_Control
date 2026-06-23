@@ -34,7 +34,7 @@ FuG Control - Simple command line interface for controlling a FuG power supply.
 Commands:
 u1000       Set voltage to e.g. 1000 V
 f0          Set output OFF
-f1          Set output ON (blocked if interlock active)
+f1          Set output ON
 p0          Set polarity to +
 p1          Set polarity to -
 >s1 0.0001  Set current limit to e.g. 0.0001 A
