@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-FuG Control - A simple command line interface for controlling a FuG power supply.
-It monitors the TPS2 interlock and disables the FuG output if an interlock occurs.
+FuG Control - Simple command line interface for controlling a FuG power supply.
 
-Version 0.2.3
+Version 0.5.0
 Author: Patrick Sturm
 Copyright 2025 TOFWERK
 """
@@ -13,6 +12,7 @@ import socket
 import time
 import threading
 import logging
+import argparse
 import prompt_toolkit
 from prompt_toolkit.styles import Style
 from prompt_toolkit.patch_stdout import patch_stdout
@@ -20,16 +20,16 @@ from dataclasses import dataclass, field
 from TofDaq import *
 from TwTool import *
 
-FUG_IP = '192.168.1.153'
+FUG_IP = '10.205.100.208'
 FUG_PORT = 2101
+FUG_POLL_INTERVAL = 1.0  # seconds
+
 TPS_IP = 'localhost'
 INTERLOCK_MON_RC = 601  # INTERLOCK_MON RC code
 INTERLOCK_POLL_INTERVAL = 1.0  # seconds
-FUG_POLL_INTERVAL = 1.0  # seconds
 
 HELP_MESSAGE = """
-FuG Control - A simple command line interface for controlling a FuG power supply.
-It monitors the TPS2 interlock and disables the FuG output if an interlock occurs.
+FuG Control - Simple command line interface for controlling a FuG power supply.
 
 Commands:
 u1000       Set voltage to e.g. 1000 V
@@ -44,6 +44,10 @@ h           Show this help message
 c           Clear screen
 q           Quit
 """
+
+parser = argparse.ArgumentParser(description="Simple command line interface for controlling a FuG power supply.")
+parser.add_argument("-i", "--interlock", action="store_true", help="run with TPS2 interlock monitoring")
+args = parser.parse_args()
 
 class FUG:
   def __init__(self, ip, port, timeout = 2.0):
@@ -74,7 +78,6 @@ class FUG:
       self._socket.sendall((command + '\n').encode())
       return self._socket.recv(1024).decode()
 
-
 @dataclass
 class State:
   voltage: float = 0.0
@@ -84,7 +87,6 @@ class State:
   lock: threading.Lock = field(default_factory=threading.Lock)
 
 state = State()
-
 
 class LogHandler(logging.Handler):
   """Ensure logging works with prompt_toolkit."""
@@ -102,6 +104,26 @@ def setup_logging():
 
 log = setup_logging()
 
+def monitor_fug(stop_event, fug):
+  while not stop_event.is_set():
+    voltage = fug.send_command('>m0?')
+    current = fug.send_command('>m1?')
+    state.voltage = float(voltage[3:-2])
+    state.current = float(current[3:-2])*1e6
+    stop_event.wait(FUG_POLL_INTERVAL)
+
+def bottom_toolbar():
+  text = f'Voltage: {state.voltage:.1f} V, Current: {state.current:.1f} \u00B5A'
+  if state.interlock:
+    return [('class:interlock', text)]
+  if (abs(state.voltage) > 5):
+    return [('class:set', text)]
+  return [('class:bottom-toolbar', text)]
+
+def dynamic_rprompt():
+  if state.last_response == 'E0\r\n':
+    return 'OK'
+  return state.last_response
 
 def monitor_interlock(stop_event, fug):
   while not stop_event.is_set():
@@ -123,31 +145,6 @@ def monitor_interlock(stop_event, fug):
           log.info('Interlock cleared – output switched ON.')
     stop_event.wait(INTERLOCK_POLL_INTERVAL)
 
-
-def monitor_fug(stop_event, fug):
-  while not stop_event.is_set():
-    voltage = fug.send_command('>m0?')
-    current = fug.send_command('>m1?')
-    state.voltage = float(voltage[3:-2])
-    state.current = float(current[3:-2])*1e6
-    stop_event.wait(FUG_POLL_INTERVAL)
-
-
-def bottom_toolbar():
-  text = f'Voltage: {state.voltage:.1f} V, Current: {state.current:.1f} \u00B5A'
-  if state.interlock:
-    return [('class:interlock', text)]
-  if (abs(state.voltage) > 5):
-    return [('class:set', text)]
-  return [('class:bottom-toolbar', text)]
-
-
-def dynamic_rprompt():
-  if state.last_response == 'E0\r\n':
-    return 'OK'
-  return state.last_response
-
-
 def main():
   os.system('title ' + 'FuG Control')
   os.system('cls')
@@ -158,17 +155,18 @@ def main():
   fug_id = fug.connect()
   log.info(f'{fug_id[:-2]} connected via {FUG_IP}:{FUG_PORT}')
 
-  # Connect to TPS2
-  if TwTpsConnect2(TPS_IP.encode(), 1) != TwSuccess:
-    log.error('Failed to connect to TPS2.')
-    fug.close()
-    TwCleanupDll()
-    return
-  log.info(f'TPS2 connected via {TPS_IP}.\n')
-
   stop_event = threading.Event()
-  threading.Thread(target=monitor_interlock, args=(stop_event,fug,), daemon=True).start()
   threading.Thread(target=monitor_fug, args=(stop_event,fug,), daemon=True).start()
+
+  if args.interlock:
+    # Connect to TPS2
+    if TwTpsConnect2(TPS_IP.encode(), 1) != TwSuccess:
+      log.error('Failed to connect to TPS2.')
+      fug.close()
+      TwCleanupDll()
+      return
+    log.info(f'TPS2 connected via {TPS_IP} for interlock monitoring.\n')
+    threading.Thread(target=monitor_interlock, args=(stop_event,fug,), daemon=True).start()
 
   style = Style.from_dict({
     'bottom-toolbar': '#FFFFFF bg:#333333 noreverse',
@@ -202,13 +200,13 @@ def main():
           with state.lock:
             if (state.interlock and command.lower() == 'f1'):
               log.warning('Interlock active – output ON blocked.')
-              state.last_response = 'INTERLOCK'
             else:
               state.last_response = fug.send_command(command)
   finally:
     stop_event.set()
-    TwTpsDisconnect()
-    TwCleanupDll()
+    if args.interlock:
+      TwTpsDisconnect()
+      TwCleanupDll()
     fug.close()
 
 if __name__ == '__main__':

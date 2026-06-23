@@ -1,15 +1,17 @@
 # FuG Control
 
-## A simple command line interface for controlling a FuG power supply.
+## Simple command line interface for controlling a FuG power supply.
 
-This allows to control a FuG power supply (e.g. HCP 14) with an Ethernet interface.
-Additionally, the interlock signal from a Tofwerk TOF power supply is monitored 
-and the FuG output is disabled if an interlock occurs.
+This allows to control a FuG power supply (e.g. [HCP14](https://www.xppower.com/product/HCP14-Series)) with an Ethernet interface.
+
+Additionally, when run with the command-line argument `-i`, the 
+interlock signal from a Tofwerk TOF power supply is monitored and the FuG output
+is switched off if an interlock occurs.
 
 
 ![](./screenshot.jpg)
 
-### How to run
+### Usage
 ```
-python FuG_Control.py
+python FuG_Control.py [-h] [-i]
 ```
