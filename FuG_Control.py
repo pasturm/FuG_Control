@@ -2,7 +2,7 @@
 """
 FuG Control - Simple command line interface for controlling a FuG power supply.
 
-Version 0.5.0
+Version 0.6.0
 Author: Patrick Sturm
 Copyright 2025 TOFWERK
 """
@@ -45,8 +45,8 @@ c           Clear screen
 q           Quit
 """
 
-parser = argparse.ArgumentParser(description="Simple command line interface for controlling a FuG power supply.")
-parser.add_argument("-i", "--interlock", action="store_true", help="run with TPS2 interlock monitoring")
+parser = argparse.ArgumentParser(description = 'Simple command line interface for controlling a FuG power supply.')
+parser.add_argument('-i', '--interlock', action = 'store_true', help = 'run with TPS2 interlock monitoring')
 args = parser.parse_args()
 
 class FUG:
@@ -57,26 +57,31 @@ class FUG:
     self._socket = None
     self._lock = threading.Lock()
 
-  def connect(self):
-    """Open connection and return device ID."""
-    self._socket = socket.socket()
-    self._socket.settimeout(self.timeout)
-    self._socket.connect((self.ip, self.port))
-    return self.send_command('*IDN?\n')
+  def connect(self) -> str:
+    self._socket = socket.create_connection((self.ip, self.port), timeout = self.timeout)
+    return self.send_command('*IDN?')
 
   def close(self):
-    """Close socket connection."""
-    if self._socket:
+    if self._socket is not None:
       self._socket.close()
       self._socket = None
 
-  def send_command(self, command):
-    """Send a command and return response."""
-    if not self._socket:
+  def _recv_line(self) -> str:
+    buffer = bytearray()
+    while b'\n' not in buffer:
+      chunk = self._socket.recv(1024)
+      if not chunk:
+        raise ConnectionError('Connection closed.')
+      buffer.extend(chunk)
+    line = buffer.partition(b'\r\n')[0]
+    return line.decode()
+
+  def send_command(self, command) -> str:
+    if self._socket is None:
       raise RuntimeError('FuG not connected.')
     with self._lock:
-      self._socket.sendall((command + '\n').encode())
-      return self._socket.recv(1024).decode()
+      self._socket.sendall(f'{command}\n'.encode())
+      return self._recv_line()
 
 @dataclass
 class State:
@@ -106,11 +111,20 @@ log = setup_logging()
 
 def monitor_fug(stop_event, fug):
   while not stop_event.is_set():
-    voltage = fug.send_command('>m0?')
-    current = fug.send_command('>m1?')
-    state.voltage = float(voltage[3:-2])
-    state.current = float(current[3:-2])*1e6
+    try:
+      state.voltage = parse_response(fug.send_command('>m0?'))
+      state.current = parse_response(fug.send_command('>m1?'))
+    except (socket.timeout, ConnectionError, ValueError) as e:
+      log.error('FuG polling failed: %s', e)
     stop_event.wait(FUG_POLL_INTERVAL)
+
+def parse_response(response: str) -> float:
+  if response.startswith('M0:'):
+    return float(response[3:])
+  elif response.startswith('M1:'):
+    return float(response[3:])*1e6
+  else:
+    return float('nan')
 
 def bottom_toolbar():
   text = f'Voltage: {state.voltage:.1f} V, Current: {state.current:.1f} \u00B5A'
@@ -121,7 +135,7 @@ def bottom_toolbar():
   return [('class:bottom-toolbar', text)]
 
 def dynamic_rprompt():
-  if state.last_response == 'E0\r\n':
+  if state.last_response == 'E0':
     return 'OK'
   return state.last_response
 
@@ -153,7 +167,7 @@ def main():
   # Connect to FuG
   fug = FUG(FUG_IP, FUG_PORT)
   fug_id = fug.connect()
-  log.info(f'{fug_id[:-2]} connected via {FUG_IP}:{FUG_PORT}')
+  log.info(f'{fug_id.rstrip()} connected via {FUG_IP}:{FUG_PORT}')
 
   stop_event = threading.Event()
   threading.Thread(target=monitor_fug, args=(stop_event,fug,), daemon=True).start()
