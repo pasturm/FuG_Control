@@ -2,7 +2,7 @@
 """
 FuG Control - Simple command line interface for controlling a FuG power supply.
 
-Version 0.6.0
+Version 0.7.0
 Author: Patrick Sturm
 Copyright 2025 TOFWERK
 """
@@ -12,21 +12,13 @@ import socket
 import time
 import threading
 import logging
-import argparse
+import configparser
 import prompt_toolkit
 from prompt_toolkit.styles import Style
 from prompt_toolkit.patch_stdout import patch_stdout
 from dataclasses import dataclass, field
 from TofDaq import *
 from TwTool import *
-
-FUG_IP = '10.205.100.208'
-FUG_PORT = 2101
-FUG_POLL_INTERVAL = 1.0  # seconds
-
-TPS_IP = 'localhost'
-INTERLOCK_MON_RC = 601  # INTERLOCK_MON RC code
-INTERLOCK_POLL_INTERVAL = 1.0  # seconds
 
 HELP_MESSAGE = """
 FuG Control - Simple command line interface for controlling a FuG power supply.
@@ -45,9 +37,15 @@ c           Clear screen
 q           Quit
 """
 
-parser = argparse.ArgumentParser(description = 'Simple command line interface for controlling a FuG power supply.')
-parser.add_argument('-i', '--interlock', action = 'store_true', help = 'run with TPS2 interlock monitoring')
-args = parser.parse_args()
+config = configparser.ConfigParser()
+config.read('FuG_Control.ini')
+fug_ip = config['FUG']['ip']
+fug_port = config['FUG'].getint('port', fallback = 2101)
+fug_poll_interval = config['FUG'].getfloat('poll_interval', fallback = 1)
+tps_interlock = config['TPS'].getboolean('interlock_mon', fallback = False)
+tps_ip = config['TPS'].get('ip', fallback = 'localhost')
+tps_interlock_rc = config['TPS'].getint('rc', fallback = 601)
+tps_poll_interval = config['TPS'].getfloat('poll_interval', fallback = 1)
 
 class FUG:
   def __init__(self, ip, port, timeout = 2.0):
@@ -116,7 +114,7 @@ def monitor_fug(stop_event, fug):
       state.current = parse_response(fug.send_command('>m1?'))
     except (socket.timeout, ConnectionError, ValueError) as e:
       log.error('FuG polling failed: %s', e)
-    stop_event.wait(FUG_POLL_INTERVAL)
+    stop_event.wait(fug_poll_interval)
 
 def parse_response(response: str) -> float:
   if response.startswith('M0:'):
@@ -142,7 +140,7 @@ def dynamic_rprompt():
 def monitor_interlock(stop_event, fug):
   while not stop_event.is_set():
     value = np.zeros(1, dtype=np.float64)
-    rv = TwTpsGetMonitorValue(INTERLOCK_MON_RC, value)
+    rv = TwTpsGetMonitorValue(tps_interlock_rc, value)
     if (rv != TwSuccess):
       log.error(f'Failed to read INTERLOCK_MON: {TwTranslateReturnValue(rv).decode()}.')
     else:
@@ -157,7 +155,7 @@ def monitor_interlock(stop_event, fug):
           state.interlock = False
           fug.send_command('f1')
           log.info('Interlock cleared – output switched ON.')
-    stop_event.wait(INTERLOCK_POLL_INTERVAL)
+    stop_event.wait(tps_poll_interval)
 
 def main():
   os.system('title ' + 'FuG Control')
@@ -165,21 +163,21 @@ def main():
   print(HELP_MESSAGE)
 
   # Connect to FuG
-  fug = FUG(FUG_IP, FUG_PORT)
+  fug = FUG(fug_ip, fug_port)
   fug_id = fug.connect()
-  log.info(f'{fug_id.rstrip()} connected via {FUG_IP}:{FUG_PORT}')
+  log.info(f'{fug_id.rstrip()} connected via {fug_ip}:{fug_port}')
 
   stop_event = threading.Event()
   threading.Thread(target=monitor_fug, args=(stop_event,fug,), daemon=True).start()
 
-  if args.interlock:
+  if tps_interlock:
     # Connect to TPS2
-    if TwTpsConnect2(TPS_IP.encode(), 1) != TwSuccess:
+    if TwTpsConnect2(tps_ip.encode(), 1) != TwSuccess:
       log.error('Failed to connect to TPS2.')
       fug.close()
       TwCleanupDll()
       return
-    log.info(f'TPS2 connected via {TPS_IP} for interlock monitoring.\n')
+    log.info(f'TPS2 connected via {tps_ip} for interlock monitoring.\n')
     threading.Thread(target=monitor_interlock, args=(stop_event,fug,), daemon=True).start()
 
   style = Style.from_dict({
@@ -218,10 +216,10 @@ def main():
               state.last_response = fug.send_command(command)
   finally:
     stop_event.set()
-    if args.interlock:
+    fug.close()
+    if tps_interlock:
       TwTpsDisconnect()
       TwCleanupDll()
-    fug.close()
 
 if __name__ == '__main__':
   main()

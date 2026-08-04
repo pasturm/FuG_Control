@@ -6,9 +6,8 @@ This allows to control a FuG power supply (e.g. [HCP14](https://www.xppower.com/
 
 ![](./hcp14.jpg)
 
-Additionally, when run with the command-line argument `-i`, the interlock signal
-from a Tofwerk TOF power supply is monitored and the FuG output is switched off
-if an interlock occurs.
+Additionally, it can be configured to monitor the interlock signal from a Tofwerk TOF power supply. If an interlock occurs,
+the FuG output is switched off.
 
 See the [FuG command reference](https://www.xppower.com/products/series/resources/Digital_Interface_Command_Reference_Probus_V.pdf)
 for a complete list of available power supply commands.
@@ -17,5 +16,5 @@ for a complete list of available power supply commands.
 
 ### Usage
 ```
-python FuG_Control.py [-h] [-i]
+python FuG_Control.py
 ```
