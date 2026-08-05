@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """
-FuG Control - Simple command line interface for controlling a FuG power supply.
-
-Version 0.7.0
+Version 0.8.0
 Author: Patrick Sturm
 Copyright 2025 TOFWERK
 """
@@ -16,6 +14,7 @@ import configparser
 import prompt_toolkit
 from prompt_toolkit.styles import Style
 from prompt_toolkit.patch_stdout import patch_stdout
+from prompt_toolkit.history import FileHistory
 from dataclasses import dataclass, field
 from TofDaq import *
 from TwTool import *
@@ -186,11 +185,14 @@ def main():
     'interlock': '#FFFFFF bg:red noreverse',
   })
 
+  command_history = FileHistory('.fug_history')
+
   session = prompt_toolkit.PromptSession(
     '\u26A1 ', 
     bottom_toolbar = bottom_toolbar,
     rprompt = dynamic_rprompt,
     style = style,
+    history = command_history,
     refresh_interval = 0.5
   )
 
