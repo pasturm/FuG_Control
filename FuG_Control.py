@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Version 0.8.0
+Version 0.8.1
 Author: Patrick Sturm
 Copyright 2025 TOFWERK
 """
@@ -12,9 +12,6 @@ import threading
 import logging
 import configparser
 import prompt_toolkit
-from prompt_toolkit.styles import Style
-from prompt_toolkit.patch_stdout import patch_stdout
-from prompt_toolkit.history import FileHistory
 from dataclasses import dataclass, field
 from TofDaq import *
 from TwTool import *
@@ -179,13 +176,13 @@ def main():
     log.info(f'TPS2 connected via {tps_ip} for interlock monitoring.\n')
     threading.Thread(target=monitor_interlock, args=(stop_event,fug,), daemon=True).start()
 
-  style = Style.from_dict({
+  style = prompt_toolkit.styles.Style.from_dict({
     'bottom-toolbar': '#FFFFFF bg:#333333 noreverse',
     'set': '#FFFFFF bg:green noreverse',
     'interlock': '#FFFFFF bg:red noreverse',
   })
 
-  command_history = FileHistory('.fug_history')
+  command_history = prompt_toolkit.history.FileHistory('.fug_history')
 
   session = prompt_toolkit.PromptSession(
     '\u26A1 ', 
@@ -197,7 +194,7 @@ def main():
   )
 
   try:
-    with patch_stdout():  # ensures logs appear above the prompt 
+    with prompt_toolkit.patch_stdout.patch_stdout():  # ensures logs appear above the prompt 
       while True:
         try:
           command = session.prompt()
